@@ -8,6 +8,7 @@ defaults = {
         "Sashalle",
         "Sellshit",
         "Sellgarbage",
+        "Sellcrap",
     ],
     "buyCraftLenience": 50,
     "crystalsCraftPrice": True,

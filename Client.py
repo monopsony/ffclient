@@ -1,4 +1,3 @@
-from re import L
 from Printer import Printer
 from Connector import Connector
 from Parser import Parser
@@ -15,15 +14,12 @@ from Utils import RECIPES_FILE, ITEMS_FILE, LISTS_DIR
 
 import datetime, sys, pickle, json, time, glob
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn, sklearn
 import pdb
 import threading, queue, clipboard, keyboard
 
 from Connector import THROTTLES
 
-plt.style.use("seaborn")
 
 # USER-PARAMETERS
 N_QUERY_THREADS = 4

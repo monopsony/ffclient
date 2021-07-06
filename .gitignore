@@ -112,3 +112,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# EXTRAS
+*.csv
+*.txt
+*.json
+Macros.py

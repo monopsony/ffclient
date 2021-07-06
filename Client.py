@@ -97,6 +97,13 @@ class Client(Parser, ListCreator):
     recipes = None
 
     def load_recipes(self):
+        if not os.path.exists(RECIPES_FILE):
+            self.printer.print(
+                "error",
+                f'No file found under {RECIPES_FILE}. Fetch them using "recipe update"',
+            )
+            return
+
         r = pd.read_csv(RECIPES_FILE)
         self.recipes = r[r["Item{Result}"] > 0]
         self.printer.print("info", f"Loaded a total of {len(self.recipes)} recipes")
@@ -207,6 +214,13 @@ class Client(Parser, ListCreator):
         return info
 
     def load_items(self):
+        if not os.path.exists(ITEMS_FILE):
+            self.printer.print(
+                "error",
+                f'No file found under {ITEMS_FILE}. Fetch them using "item update"',
+            )
+            return
+
         r = pd.read_csv(ITEMS_FILE)
 
         # change all Names to titlecase for consistency

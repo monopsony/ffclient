@@ -10,7 +10,7 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 THROTTLES = {
     "XIVAPI": 1.0 / 7,  # 8 requests per second, down to 7 for safety
     "GITHUB": 1.0 / 10,
-    "UNIVERSALIS": 1.0 / 7,  # not disclaimed, just same as XIVAPI for now
+    "UNIVERSALIS": 1.0 / 15,  # not disclaimed, just same as XIVAPI for now
 }
 
 TICK_RATE = 0.02  # every how many seconds throttle checks
@@ -104,7 +104,6 @@ class Connector:
         return True
 
     def query(self, query, source, raw=False):
-
         if source is None:
             if "xivapi.com" in query:
                 source = "XIVAPI"
@@ -125,7 +124,6 @@ class Connector:
             d = r.content.decode("utf-8")
         else:
             d = r.json()
-
         return d
 
     def query_csv(self, query, source):
@@ -144,7 +142,6 @@ class Connector:
         args = [str(x) for x in args]
         lst = [UNIVERSALIS_BASE_URL] + list(args)
         query = "/".join(lst)
-
         return self.query(query, "UNIVERSALIS")
 
     def get_craft_quests(self):

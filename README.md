@@ -35,7 +35,7 @@ sales show 20
 update = '''
 recipe update
 item update
-list udpate CraftQuests
+list update CraftQuests
 '''
 ```
 

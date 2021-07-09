@@ -9,7 +9,7 @@ class ListCreator:
 
     recipe_filter = ""
 
-    def create_custom(self):
+    def create_custom(self, ignore_untradeable=False):
 
         # recipe filter
         s = self.printer.input(f"Recipe filters:\n")

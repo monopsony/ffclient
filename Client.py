@@ -22,7 +22,11 @@ from Connector import THROTTLES
 
 
 # USER-PARAMETERS
-N_QUERY_THREADS = 4
+N_QUERY_THREADS = 6
+MAX_NUM = 99999999
+TAX = (1.0 / 1.05) * 0.95  # 0.95*0.95
+# prices on universalis are the buying price (all taxes included)
+# *0.95 is set price, *0.95 is money actually received
 
 
 class Client(Parser, ListCreator):
@@ -309,9 +313,12 @@ class Client(Parser, ListCreator):
 
     mb_listings = {}
 
-    def get_mb_listing(self, item):
-        d = self.uv_query(self.para["world"], item)
-        self.mb_listings[item] = d
+    def get_mb_listing(self, item, world=None):
+        if world is None:
+            world = self.para["world"]
+        d = self.uv_query(world, item)
+        if world == self.para["world"]:
+            self.mb_listings[item] = d
         return d
 
     def print_mb_history(self, *inp):
@@ -334,7 +341,9 @@ class Client(Parser, ListCreator):
             "info", f'Market board history for {info["Name"]} saved in "history.json"'
         )
 
-    def get_mb_history(self, item):
+    def get_mb_history(self, item, world):
+        if world is None:
+            world = self.para["world"]
         d = self.uv_query("history", self.para["world"], item)
         return d
 
@@ -353,12 +362,15 @@ class Client(Parser, ListCreator):
 
     mb_info = {}
 
-    def get_mb_info(self, item=None, listing=None):
-        if item in self.mb_info:
+    def get_mb_info(self, item=None, listing=None, world=None):
+        if world is None:
+            world = self.para["world"]
+
+        if (item in self.mb_info) and (world == self.para["world"]):
             return self.mb_info[item]
 
         if listing is None:
-            d = self.get_mb_listing(item)
+            d = self.get_mb_listing(item, world=world)
         else:
             d = listing
 
@@ -366,9 +378,13 @@ class Client(Parser, ListCreator):
             self.mb_info[item] = None
             return None
 
+        # check if item not ultra rare: https://i.imgur.com/7sxTVdr.png
+        if "regularSaleVelocity" not in d:
+            return None
+
         # calculate sales per day
         times = [(time.time() - x["timestamp"]) / 86400 for x in d["recentHistory"]]
-        if np.max(times) > 7:
+        if (len(times) > 0) and (np.max(times) > 7):
             h_tot = np.max(times)
             sales_tot = np.sum([x["quantity"] for x in d["recentHistory"]])
             sph = sales_tot / h_tot
@@ -382,6 +398,44 @@ class Client(Parser, ListCreator):
             sph = d["regularSaleVelocity"]
             sph_hq = d["hqSaleVelocity"]
 
+        # calculate recent price
+        recentPriceDays = self.para["recentPriceDays"]
+        recentPriceN = self.para["recentPriceN"]
+        recLists = [
+            x
+            for x in d["recentHistory"]
+            if (time.time() - x["timestamp"]) / 86400 <= recentPriceDays
+        ]
+        recListsHQ = [x for x in recLists if x["hq"] == True]
+        recListsNQ = [x for x in recLists if x["hq"] == False]
+
+        if len(recLists) == 0:
+            recentPrice = MAX_NUM
+        elif len(recLists) > recentPriceN:
+            recentPrice = np.mean([x["pricePerUnit"] for x in recLists])
+        else:
+            recentPrice = np.mean(
+                [x["pricePerUnit"] for x in d["recentHistory"][:recentPriceN]]
+            )
+
+        if len(recListsNQ) == 0:
+            recentPriceNQ = MAX_NUM
+        elif len(recListsNQ) > recentPriceN:
+            recentPriceNQ = np.mean([x["pricePerUnit"] for x in recListsNQ])
+        else:
+            recentPriceNQ = np.mean(
+                [x["pricePerUnit"] for x in d["recentHistory"][:recentPriceN]]
+            )
+
+        if len(recListsHQ) == 0:
+            recentPriceHQ = MAX_NUM
+        elif len(recListsHQ) > recentPriceN:
+            recentPriceHQ = np.mean([x["pricePerUnit"] for x in recListsHQ])
+        else:
+            recentPriceHQ = np.mean(
+                [x["pricePerUnit"] for x in d["recentHistory"][:recentPriceN]]
+            )
+
         i = {
             "itemID": d["itemID"],
             "averagePrice": d["averagePrice"],
@@ -390,6 +444,9 @@ class Client(Parser, ListCreator):
             "minPrice": d["minPrice"],
             "minPriceNQ": d["minPriceNQ"],
             "minPriceHQ": d["minPriceHQ"],
+            "recentPrice": recentPrice,
+            "recentPriceNQ": recentPriceNQ,
+            "recentPriceHQ": recentPriceHQ,
             "salesPerDay": sph,
             "salesPerDayHQ": sph_hq,
             "salesPerDayNQ": (sph - sph_hq),
@@ -397,11 +454,20 @@ class Client(Parser, ListCreator):
 
         for k in i.keys():
             if i[k] is None:
-                i[k] = 99999999
+                i[k] = MAX_NUM
 
         self.mb_info[item] = i
 
         return i
+
+    def get_connected_mb_info(self, **kwargs):
+
+        d = {}
+        for world in self.para["connectedWorlds"]:
+            info = self.get_mb_info(world=world, **kwargs)
+            d[world] = info
+
+        return d
 
     #####
     ## LISTS
@@ -601,22 +667,6 @@ class Client(Parser, ListCreator):
 
             if not alive:
                 break
-
-        # "useless blocking call"
-        # https://stackoverflow.com/questions/1635080/terminate-a-multi-thread-python-program
-        # for t in threads:
-        #     t.join()
-
-        # for el in active_list:
-        # self.printer.loadingCount(s, i, N)
-        # item = self.get_item(name=el["name"])
-        # sale = self.sell_item(item, hq=el.get("hq", False), ignore_bl=False)
-        # if sale is None:
-        #     continue
-        # sale["quantity"] = el.get("quantity", 0)
-        # sales_list.append(sale)
-        # i += 1
-
         self.printer.loadingCount(
             self.sales_list_message, len(sales_list), N, done=True
         )
@@ -644,10 +694,12 @@ class Client(Parser, ListCreator):
             "itemID",
             "averagePrice" + tag,
             "minPrice" + tag,
+            "recentPrice" + tag,
             "salesPerDay" + tag,
             "craftPrice",
             "maxProfitPerDay",
             "expProfitPerDay",
+            "recProfitPerDay",
         ]
         self.printer.printDFItem({k: d[k] for k in l})
 
@@ -692,13 +744,18 @@ class Client(Parser, ListCreator):
 
         tag = "HQ" if hq else "NQ"
         d["expProfit"] = (
-            min(d["minPrice" + tag], d["averagePrice" + tag]) * 0.95 - d["craftPrice"]
+            min(d["minPrice" + tag], d["averagePrice" + tag]) * TAX - d["craftPrice"]
         )
         d["maxProfit"] = (
-            max(d["minPrice" + tag], d["averagePrice" + tag]) * 0.95 - d["craftPrice"]
+            max(d["minPrice" + tag], d["averagePrice" + tag]) * TAX - d["craftPrice"]
         )
+        d["recProfit"] = (
+            min(d["minPrice" + tag], d["recentPrice" + tag]) * TAX - d["craftPrice"]
+        )
+
         d["expProfitPerDay"] = d["expProfit"] * d["salesPerDay" + tag]
         d["maxProfitPerDay"] = d["maxProfit"] * d["salesPerDay" + tag]
+        d["recProfitPerDay"] = d["recProfit"] * d["salesPerDay" + tag]
 
         return d
 
@@ -889,6 +946,307 @@ class Client(Parser, ListCreator):
             self.printer.print(
                 "info",
                 f"Filters applied, sales list contains {len(self.sales)} items down from {N}",
+            )
+        except Exception as e:
+            self.printer.print("error", e)
+            self.printer.print("info", "No filters applied")
+            return
+
+    #####
+    ## FLIP
+    #####
+
+    def flip_item(self, item, hq=False, ignore_bl=True):
+        item_id = item["#"]
+        mb_info = self.get_mb_info(item=item_id)
+
+        if mb_info is None:
+            self.printer.print(
+                "error", f"No mb info found for {item['Name']}, skipping"
+            )
+            return
+
+        mb_list = self.mb_listings[item_id]
+        if (not ignore_bl) and (self.check_listing_retainer_bl(mb_list) is not None):
+            retainer = self.check_listing_retainer_bl(mb_list)
+            self.printer.print(
+                "info",
+                f'Ignored {item["Name"]} due to retainer {retainer} being in blacklist',
+            )
+            return None
+
+        if (
+            (not ignore_bl)
+            and (self.para["blCurrentListings"])
+            and (item["Name"] in self.current_listings)
+        ):
+            self.printer.print(
+                "info",
+                f'Ignored {item["Name"]} due to item being in current listings',
+            )
+            return None
+
+        conn = self.get_connected_mb_info(item=item_id)
+
+        d = mb_info.copy()
+        d["hq"] = hq
+        tag = "HQ" if hq else "NQ"
+        d["connMinPrices"] = []
+
+        worlds = self.para["connectedWorlds"]
+        for i in range(len(worlds)):
+            world = worlds[i]
+            if conn[world] is None:
+                d["connMinPrices"].append(MAX_NUM)
+            else:
+                d["connMinPrices"].append(conn[world]["minPrice" + tag])
+
+        minWorldIndex = np.argmin(d["connMinPrices"])
+        minBuy = d["connMinPrices"][minWorldIndex]
+        d["buyWorld"] = worlds[minWorldIndex]
+        d["buy"] = minBuy
+
+        tag = "HQ" if hq else "NQ"
+        d["expProfit"] = (
+            min(d["minPrice" + tag], d["averagePrice" + tag]) * TAX - minBuy
+        )
+        d["maxProfit"] = (
+            max(d["minPrice" + tag], d["averagePrice" + tag]) * TAX - minBuy
+        )
+        d["recProfit"] = min(d["minPrice" + tag], d["recentPrice" + tag]) * TAX - minBuy
+
+        d["expProfitPerDay"] = d["expProfit"] * d["salesPerDay" + tag]
+        d["maxProfitPerDay"] = d["maxProfit"] * d["salesPerDay" + tag]
+        d["recProfitPerDay"] = d["recProfit"] * d["salesPerDay" + tag]
+
+        return d
+
+    def print_flip_item(self, *inp, hq=False):
+        item = self.to_item_input(inp)
+        if item is None:
+            self.printer.print("error", f"No item found under id/name '{inp}'.")
+            return None
+
+        d = self.flip_item(item, hq=hq)
+
+        self.printer.print("info", f"Looking to flip {item['Name']}")
+        tag = "HQ" if hq else "NQ"
+        l = [
+            "itemID",
+            "averagePrice" + tag,
+            "minPrice" + tag,
+            "recentPrice" + tag,
+            "salesPerDay" + tag,
+            "buy",
+            "buyWorld",
+            "maxProfitPerDay",
+            "expProfitPerDay",
+            "recProfitPerDay",
+        ]
+        self.printer.printDFItem({k: d[k] for k in l})
+
+        self.printer.print("info", f"Expected  profit: {d['expProfit']}")
+        self.printer.print("info", f"Potential profit: {d['maxProfit']}")
+
+    def _flip_current_list_helper(self, q):
+        while not q.empty():
+            el = q.get()
+            item = self.get_item(name=el["name"])
+            flip = self.flip_item(item, hq=el.get("hq", False), ignore_bl=False)
+            if flip is None:
+                q.task_done()
+                continue
+
+            flip["quantity"] = el.get("quantity", 0)
+            self.flips_list.append(flip)
+            self.printer.loadingCount(
+                self.flips_list_message, len(self.flips_list), self.flips_list_N
+            )
+            q.task_done()
+
+    def flip_current_list(self):
+        self.flips_list = []
+        flips_list = self.flips_list
+
+        if self.active_list is None:
+            self.printer.print("error", "No active current list set")
+            return
+
+        alist = self.active_list
+        N = len(self.lists[alist])
+
+        # get number of components
+        id_list = []
+        for el in self.lists[alist]:
+            item = self.get_item(name=el["name"])
+            id_list.append(item["#"])
+
+        conn_worlds = self.para["connectedWorlds"]
+        n_calls = N * (len(conn_worlds) + 1)
+
+        # ask user for confirmation
+        app_time = n_calls * THROTTLES["UNIVERSALIS"]
+        if not self.wait_confirm(
+            f"Are you sure you want to flip {N} items from list: {alist}? Max market board calls: {n_calls}. Approximate time: {app_time//60:.0f}min {app_time%60:.0f}s."
+        ):
+            return
+
+        t0 = time.time()
+        i = 0
+        self.flips_list_message = "Collecting data and calculating prices"
+        self.flips_list_N = N
+        active_list = self.lists[alist]
+
+        q = queue.Queue()
+        for el in active_list:
+            q.put(el)
+
+        threads = []
+        for i in range(N_QUERY_THREADS):
+            t = threading.Thread(
+                target=self._flip_current_list_helper, daemon=True, args=(q,)
+            )
+            t.start()
+            threads.append(t)
+
+        while True:
+            time.sleep(0.5)
+            alive = False
+            for t in threads:
+                alive = alive or t.is_alive()
+
+            if not alive:
+                break
+        self.printer.loadingCount(
+            self.flips_list_message, len(flips_list), N, done=True
+        )
+        t = time.time() - t0
+        self.printer.print(
+            "info",
+            f"Took {t//60:.0f}min {t%60:.0f}s, for a total of {len(self.mb_info)} market board queries.",
+        )
+
+        flips_list = pd.DataFrame(flips_list)
+
+        self.flips = flips_list
+
+    def flips_list_sort(self, s):
+
+        if self.flips is None:
+            self.printer.print(
+                "error",
+                "No flips generated yet. Use `flip list` to generate a flips list.",
+            )
+            return
+
+        flips = self.flips
+        cols = list(flips.columns)
+        if not (s in cols):
+            self.printer.print(
+                "error",
+                f"Unable to sort by {s}: not a column title. Column titles are:\n{cols}",
+            )
+            return
+
+        self.flips.sort_values(s, ascending=False, inplace=True, ignore_index=True)
+
+    def flips_list_show(self, N):
+        if self.flips is None:
+            self.printer.print(
+                "error",
+                "No flips generated yet. Use `flip list` to generate a flips list.",
+            )
+            return
+
+        if not N.isnumeric():
+            self.printer.print("error", "Argument {N} is not a number")
+            return
+        N = int(N)
+
+        flips = self.flips[:N]
+
+        self.printer.print("info", f"Show top {N} flips out of {len(flips)}")
+
+        header = f"{'':<4}{'Name':<30}{'hq':<6}{'N':<6}{'avg price':<12}{'curr price':<12}{'spd':<6}{'expProfit':<12}{'maxProfit':<12}{'expPPD':<12}{'maxPPD':<12}"
+        print(header)
+
+        for index, row in flips.iterrows():
+            item = self.get_item(id=row["itemID"])
+            tag = "HQ" if row["hq"] else "NQ"
+            s = f"{index:<4}{item['Name'][:28]:<28}  {row['hq']:<6}{row['quantity']:<4}  {row['averagePrice'+tag]:<10.0f}  {row['minPrice'+tag]:<10.0f}  {row['salesPerDay'+tag]:<4.1f}  "
+            s += f"{row['expProfit']:<10.0f}  {row['maxProfit']:<10.0f}  {row['expProfitPerDay']:<10.0f}  {row['maxProfitPerDay']:<10.0f}  "
+            print(s)
+
+        print(
+            f"Total // expProfit: {flips['expProfit'].to_numpy().sum():.0f}   expProfitPerDay: {flips['expProfitPerDay'].to_numpy().sum():.0f}"
+        )
+
+    def flips_list_print_columns(self):
+        if self.flips is None:
+            self.printer.print(
+                "error",
+                "No flips generated yet. Use `flip list` to generate a flips list.",
+            )
+            return
+
+        self.printer.print("info", "Printing flips columns")
+        self.printer.pprint(list(self.flips.columns))
+
+    def flips_list_copy(self, N):
+
+        if self.flips is None:
+            self.printer.print(
+                "error",
+                "No flips generated yet. Use `sell list` to generate a flips list.",
+            )
+            return
+
+        if not N.isnumeric():
+            self.printer.print("error", "Argument {N} is not a number")
+            return
+        N = int(N)
+
+        if N < 0 or N >= len(self.flips):
+            self.printer.print(
+                "error",
+                f"Index {N} too low/large for flips list with {len(self.flips)} elements",
+            )
+            return
+
+        sale = self.flips.iloc[N]
+
+        item = self.get_item(id=sale["itemID"])
+        name = item["Name"]
+
+        utils.copy(name)
+        self.printer.print("info", f"Copied `{name}` to clipboard")
+
+    def flips_list_drop(self, idxs):
+        idxs = [int(x) for x in idxs if x.isnumeric()]
+        self.printer.print("info", f"Dropping flip indices {idxs}.")
+        self.flips.drop(idxs, inplace=True)
+
+    def flips_list_filter(self, query=None):
+
+        if self.flips is None:
+            self.printer.print(
+                "error",
+                "No flips generated yet. Use `flip list` to generate a flips list.",
+            )
+            return
+
+        if query is None:
+            s = self.printer.input(f"Set filters:\n")
+        else:
+            s = query
+
+        N = len(self.flips)
+        try:
+            filtered = self.flips.query(s)
+            self.flips = filtered
+            self.printer.print(
+                "info",
+                f"Filters applied, flips list contains {len(self.flips)} items down from {N}",
             )
         except Exception as e:
             self.printer.print("error", e)

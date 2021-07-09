@@ -242,6 +242,22 @@ class Parser:
             else:
                 self.print_sell_item(*cmds[1:], hq=hq)
 
+        elif main == "flip":
+            if not self.argumentCheck(cmds, 1):
+                return
+
+            if cmds[1] == "hq":
+                hq = True
+                del cmds[1]
+            else:
+                hq = False
+
+            if cmds[1] == "list":
+                self.flip_current_list()
+
+            else:
+                self.print_flip_item(*cmds[1:], hq=hq)
+
         elif main == "sales":
             if not self.argumentCheck(cmds, 1):
                 return
@@ -284,6 +300,46 @@ class Parser:
                     return
 
                 self.sales_list_drop(cmds[2:])
+
+            else:
+                self.bad_subcmd(cmds)
+
+        elif main == "flips":
+            if not self.argumentCheck(cmds, 1):
+                return
+
+            if cmds[1] == "sort":
+                if not self.argumentCheck(cmds, 2):
+                    return
+
+                self.flips_list_sort(cmds[2])
+
+            elif cmds[1] == "show":
+                if not self.argumentCheck(cmds, 2):
+                    return
+
+                self.flips_list_show(cmds[2])
+
+            elif cmds[1] == "copy":
+                if not self.argumentCheck(cmds, 2):
+                    return
+
+                self.flips_list_copy(cmds[2])
+
+            elif cmds[1] == "cols" or cmds[1] == "columns":
+                self.flips_list_print_columns()
+
+            elif cmds[1] == "filter":
+                if len(cmds) > 2:
+                    self.flips_list_filter(query=" ".join(cmds[2:]))
+                else:
+                    self.flips_list_filter()
+
+            elif cmds[1] == "drop":
+                if not self.argumentCheck(cmds, 2):
+                    return
+
+                self.flips_list_drop(cmds[2:])
 
             else:
                 self.bad_subcmd(cmds)

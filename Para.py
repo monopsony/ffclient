@@ -1,5 +1,6 @@
 defaults = {
     "world": "Shiva",
+    "connectedWorlds": ["Lich", "Odin", "Phoenix", "Zodiark", "Twintania"],
     "retainerBL": [
         "Territum",
         "Teritum",
@@ -12,6 +13,8 @@ defaults = {
     ],
     "buyCraftLenience": 50,
     "crystalsCraftPrice": True,
-    "removeUntradeableReagents": True,
+    "removeUntradeableReagents": False,
     "blCurrentListings": True,
+    "recentPriceN": 3,
+    "recentPriceDays": 3,
 }
